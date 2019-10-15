@@ -114,6 +114,7 @@ int main(int argc, char **argv)
 		curCar->dir = dir;
 		carArray[i] = *curCar;
 		pthread_create(&cars[i], NULL, OneVehicle, &carArray[i]);
+		free(curCar);
 	}
 
 	for(int i = 0; i < NUMCARS; i++)
