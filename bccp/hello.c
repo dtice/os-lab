@@ -5,12 +5,13 @@
 #include <pthread.h>
 
 enum direction{TO_BRIDGER, TO_BOZEMAN};
+const char *directions[] = {"To Bridger", "To Bozeman"};
+
 typedef struct
 {
 	enum direction dir;
 
 } car;
-const char *directions[] = {"To Bridger", "To Bozeman"};
 
 int MAXCARS;
 int NUMCARS;
