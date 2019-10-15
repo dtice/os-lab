@@ -69,6 +69,9 @@ void ArriveBridgerOneWay(void *c)
 	}
 	int can_proceed = 0;
 	int i = 0;
+	printf("\nCars waiting to go to Bridger: %d\n", state.to_bridger);
+	printf("Cars waiting to go to Bozeman: %d\n\n", state.to_bozeman);
+
 	while(can_proceed != 1)
 	{
 		int err = pthread_mutex_lock(&lock);
@@ -83,12 +86,23 @@ void ArriveBridgerOneWay(void *c)
 			printf("\n[Car #%d] Can proceed\n", tid);
 			can_proceed = 1;
 			state.cars_on_oneway++;
+			switch((int)carAd->dir)
+			{
+				case 0:
+					state.to_bridger--;
+					break;
+				case 1:
+					state.to_bozeman--;
+					break;
+			}
 		}
 		else
 		{
-			if(i % 5000000 == 0)
+			if(i % 9000000 == 0)
 			{
-				printf("\n[Car #%d] Waiting. Road is full\n", tid);
+				printf("\n[Car #%d] Waiting. Road is full (%d/%d)\n", tid, state.cars_on_oneway, MAXCARS);
+				printf("\nCars waiting to go to Bridger: %d\n", state.to_bridger);
+				printf("Cars waiting to go to Bozeman: %d\n\n", state.to_bozeman);
 			}
 		}
 		pthread_mutex_unlock(&lock);
@@ -101,6 +115,7 @@ void OnBridgerOneWay(void *c)
 	car *carAd = (car *)c;
 	int tid = carAd->tid;
 	printf("[Car #%d] On Bridger One-Way Heading %s\n", tid, directions[carAd->dir]);
+	printf("\nCars on One-way: %d\n\n", state.cars_on_oneway);
 	//int randSec = floor(5 * rand() / ((double)RAND_MAX));
 	//sleep(randSec);
 	sleep(1);
@@ -126,6 +141,8 @@ void ExitBridgerOneWay(void *c)
 	}
 	state.cars_on_oneway--;
 	state.cars_passed++;
+	printf("\nCars on One-way: %d\n", state.cars_on_oneway);
+	printf("Cars passed in total: %d\n\n", state.cars_passed);
 	pthread_mutex_unlock(&lock);
 }
 
@@ -176,11 +193,11 @@ int main(int argc, char **argv)
 
 		if(randBit == 0)
 		{
-			dir = TO_BOZEMAN;
+			dir = TO_BRIDGER;
 		}
 		else
 		{
-			dir = TO_BRIDGER;
+			dir = TO_BOZEMAN;
 		}
 
 		car *curCar = malloc(sizeof(*curCar));
