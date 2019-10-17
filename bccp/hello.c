@@ -13,12 +13,19 @@ typedef struct
 	enum direction dir;
 	//pthread_t *tid;
 	int tid;
-
+	int time_to_arrive;
 } car;
 
 typedef struct
 {
+	// cars_on_oneway acts as our semaphore
 	int cars_on_oneway;
+
+	// combo and last_car help with starvation
+	int combo;
+	enum direction last_car;
+
+
 	enum direction dir;
 	int to_bridger;
 	int to_bozeman;
@@ -32,7 +39,9 @@ void print_state(sim_state *state)
 	printf("[INFO] Cars waiting to go to Bridger: %d\n", state->to_bridger);
 	printf("[INFO] Cars waiting to go to Bozeman: %d\n", state->to_bozeman);
 	printf("[INFO] Cars on One-way: %d\n", state->cars_on_oneway);
-	printf("[INFO] Cars passed in total: %d", state->cars_passed);
+	printf("[INFO] Cars passed in total: %d\n", state->cars_passed);
+	printf("[INFO] Direction of last car: %s\n", directions[state->last_car]);
+	printf("[INFO] Car direction streak: %d", state->combo);
 	printf("\n------------------------------------------------------\n\n");
 }
 
@@ -43,7 +52,8 @@ int VERB;
 int RAND_SEED;
 int THREAD_WAIT;
 
-pthread_mutex_t lock;
+pthread_mutex_t mainLock;
+pthread_mutex_t onewayLock;
 
 /* The state variable acts as our critical section, lock prevents 2 threads
 from occupying it */
@@ -57,6 +67,12 @@ int *parse_unnamed_args(int argc, char **argv)
 	while(argv[i] != NULL)
 	{
 		int parsed_arg = atoi(argv[i]);
+		if(parsed_arg == 0 && i != 3)
+		{
+			parsed_args[0] = -1;
+			return parsed_args;
+		}
+
 		parsed_args[i-1] = parsed_arg;
 		if(VERB > 0)
 		{
@@ -108,6 +124,13 @@ void ArriveBridgerOneWay(void *c)
 	car *carAd = (car*)c;
 	int tid = carAd->tid;
 
+	// Delay arriving at bridger one way
+	if(VERB > 0)
+	{
+		printf("[Car #%d] Waiting %d to arrive at one-way\n", tid, carAd->time_to_arrive);
+	}
+	sleep(carAd->time_to_arrive);
+
 	printf("[Car #%d] Arrived at One-Way\n", tid);
 
 	switch((int)carAd->dir)
@@ -140,7 +163,7 @@ void ArriveBridgerOneWay(void *c)
 
 	while(can_proceed != 1)
 	{
-		int err = pthread_mutex_lock(&lock);
+		int err = pthread_mutex_lock(&mainLock);
 		if(err != 0)
 		{
 			printf("[ERROR] Could not obtain mutex lock: %d\n", err);
@@ -155,19 +178,34 @@ void ArriveBridgerOneWay(void *c)
 			// Direction of oneway matches current cars direction
 			if(state.dir == carAd->dir)
 			{
-				printf("\n[Car #%d] Can proceed\n", tid);
-				can_proceed = 1;
-				state.cars_on_oneway++;
-				switch((int)carAd->dir)
+				// Check combo;
+				if(state.combo > 10)
 				{
-					case 0:
+					//printf("Detected starvation, preempting\n");
+
+				}
+				else
+				{
+					printf("\n[Car #%d] Can proceed\n", tid);
+					can_proceed = 1;
+					state.cars_on_oneway++;
+					if(state.last_car == carAd->dir){
+						state.combo++;
+					}
+
+					state.last_car = carAd->dir;
+
+					switch((int)carAd->dir)
+					{
+						case 0:
 						state.to_bridger--;
 						break;
-					case 1:
+						case 1:
 						state.to_bozeman--;
 						break;
+					}
+					print_state(&state);
 				}
-				print_state(&state);
 			}
 			// Flip direction if no cars on roadway but state.dir != carAd->dir
 			else if(state.cars_on_oneway == 0)
@@ -177,6 +215,10 @@ void ArriveBridgerOneWay(void *c)
 					printf("\n[Car #%d] Setting flow of oneway to %s\n", tid, directions[(int)carAd->dir]);
 				}
 				state.dir = carAd->dir;
+				if(state.last_car == carAd->dir){
+					state.combo++;
+				}
+				state.last_car = carAd->dir;
 				printf("\n[Car #%d] Can proceed\n", tid);
 				can_proceed = 1;
 				state.cars_on_oneway++;
@@ -211,7 +253,7 @@ void ArriveBridgerOneWay(void *c)
 				printf("\n[Car #%d] Waiting to go %s. Road is full.\n", tid, directions[(int)carAd->dir]);
 			}
 		}
-		pthread_mutex_unlock(&lock);
+		pthread_mutex_unlock(&mainLock);
 		i++;
 	}
 }
@@ -222,23 +264,23 @@ void OnBridgerOneWay(void *c)
 	int tid = carAd->tid;
 	print_state(&state);
 
-	if(VERB > 0)
-	{
-		printf("[Car #%d] On Bridger One-Way Heading %s\n", tid, directions[carAd->dir]);
-		printf("\n[INFO] Cars on One-way: %d\n\n", state.cars_on_oneway);
-	}
 	if(THREAD_WAIT > 0){
 		printf("[Car #%d] Traversing over %dsec(s)\n", tid, THREAD_WAIT);
 		sleep(1 * THREAD_WAIT);
 	}
 
-	int err = pthread_mutex_lock(&lock);
+	int err = pthread_mutex_lock(&mainLock);
 	if(err != 0)
 	{
 		printf("[ERROR] Could not obtain mutex lock\n");
 		return;
 	}
-	pthread_mutex_unlock(&lock);
+	if(VERB > 0)
+	{
+		printf("[Car #%d] On Bridger One-Way Heading %s\n", tid, directions[carAd->dir]);
+		printf("\n[INFO] Cars on One-way: %d\n\n", state.cars_on_oneway);
+	}
+	pthread_mutex_unlock(&mainLock);
 }
 
 void ExitBridgerOneWay(void *c)
@@ -246,7 +288,7 @@ void ExitBridgerOneWay(void *c)
 	car *carAd = (car *)c;
 	int tid = carAd->tid;
 	printf("[Car #%d] Exiting Bridger One-Way Heading %s\n", tid, directions[carAd->dir]);
-	int err = pthread_mutex_lock(&lock);
+	int err = pthread_mutex_lock(&mainLock);
 	if(err != 0)
 	{
 		printf("[ERROR] Could not obtain mutex lock\n");
@@ -258,7 +300,7 @@ void ExitBridgerOneWay(void *c)
 		printf("\n[INFO] Cars on One-way: %d\n", state.cars_on_oneway);
 		printf("[INFO] Cars passed in total: %d\n\n", state.cars_passed);
 	}
-	pthread_mutex_unlock(&lock);
+	pthread_mutex_unlock(&mainLock);
 }
 
 void *OneVehicle(void *c)
@@ -282,9 +324,14 @@ void *OneVehicle(void *c)
 	}
 }
 
+/*
+
+	Usage: bccp NUMCARS MAXCARS [THREAD_WAIT] [RAND_SEED] [TIME_TO_ARRIVE]
+
+ */
 int main(int argc, char **argv)
 {
-	int err = pthread_mutex_init(&lock, NULL);
+	int err = pthread_mutex_init(&mainLock, NULL);
 	if(err != 0)
 	{
 		printf("\n [ERROR] Mutex Lock Failed: %d\n", err);
@@ -294,6 +341,12 @@ int main(int argc, char **argv)
 	//int* parsed_args = parse_args(argc, argv);
 
 	int* parsed_args = parse_unnamed_args(argc, argv);
+
+	if(parsed_args[0] == -1)
+	{
+		printf("Usage: bccp NUMCARS MAXCARS [VERBOSITY] [RAND_SEED] [THREAD_WAIT] \n\nMAXCARS and NUMCARS must be > 0\n\n");
+		exit(1);
+	}
 
 	// Initialize number of cars to be simulated
 	NUMCARS = parsed_args[0];
@@ -350,7 +403,10 @@ int main(int argc, char **argv)
 		curCar->dir = dir;
 		//curCar->tid = &cars[i];
 		curCar->tid = i;
+		// random time to arrive at one_way
+		curCar->time_to_arrive = rand() % 3;
 		carArray[i] = *curCar;
+
 		pthread_create(&cars[i], NULL, OneVehicle, (void *)&carArray[i]);
 		free(curCar);
 	}
@@ -360,7 +416,7 @@ int main(int argc, char **argv)
 		pthread_join(cars[i], NULL);
 	}
 
-	pthread_mutex_destroy(&lock);
+	pthread_mutex_destroy(&mainLock);
 
 	return 0;
 }
