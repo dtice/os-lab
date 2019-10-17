@@ -177,59 +177,56 @@ void ArriveBridgerOneWay(void *c)
 		// Oneway not full
 		if(state.cars_on_oneway < MAXCARS)
 		{
-			// Direction of oneway matches current cars direction
-			if(state.dir == carAd->dir)
+			// Check starvation detection variable
+			if(state.combo >= 2)
 			{
-				// Check starvation detection variable
-				if(state.combo >= 2)
+				printf("[Car #%d] Detected starvation, preempting\n", tid);
+				pthread_mutex_unlock(&mainLock);
+				int check = -1;
+				while(check != 0)
 				{
-					printf("[Car #%d] Detected starvation, preempting\n", tid);
-					pthread_mutex_unlock(&mainLock);
-					int check = -1;
-					while(check != 0)
-					{
-						pthread_mutex_lock(&onewayLock);
-						check = state.cars_on_oneway;
-						pthread_mutex_unlock(&onewayLock);
-					}
-					pthread_mutex_lock(&mainLock);
-					if(carAd->dir == TO_BOZEMAN)
-					{
-						state.dir = TO_BRIDGER;
-					}
-					else
-					{
-						state.dir = TO_BOZEMAN;
-					}
-					state.combo = 0;
-					pthread_mutex_unlock(&mainLock);
-					continue;
-
+					pthread_mutex_lock(&onewayLock);
+					check = state.cars_on_oneway;
+					pthread_mutex_unlock(&onewayLock);
+				}
+				pthread_mutex_lock(&mainLock);
+				if(carAd->dir == TO_BOZEMAN)
+				{
+					state.dir = TO_BRIDGER;
 				}
 				else
 				{
-					printf("\n[Car #%d] Can proceed\n", tid);
-					can_proceed = 1;
-					pthread_mutex_lock(&onewayLock);
-					state.cars_on_oneway++;
-					pthread_mutex_unlock(&onewayLock);
-					if(state.last_car == carAd->dir){
-						state.combo++;
-					}
-
-					state.last_car = carAd->dir;
-
-					switch((int)carAd->dir)
-					{
-						case 0:
-						state.to_bridger--;
-						break;
-						case 1:
-						state.to_bozeman--;
-						break;
-					}
-					print_state(&state);
+					state.dir = TO_BOZEMAN;
 				}
+				state.combo = 0;
+				pthread_mutex_unlock(&mainLock);
+				continue;
+
+			}
+			// Direction of oneway matches current cars direction
+			if(state.dir == carAd->dir)
+			{
+				printf("\n[Car #%d] Can proceed\n", tid);
+				can_proceed = 1;
+				pthread_mutex_lock(&onewayLock);
+				state.cars_on_oneway++;
+				pthread_mutex_unlock(&onewayLock);
+				if(state.last_car == carAd->dir){
+					state.combo++;
+				}
+
+				state.last_car = carAd->dir;
+
+				switch((int)carAd->dir)
+				{
+					case 0:
+					state.to_bridger--;
+					break;
+					case 1:
+					state.to_bozeman--;
+					break;
+				}
+				print_state(&state);
 			}
 			// Flip direction if no cars on roadway but state.dir != carAd->dir
 			else if(state.cars_on_oneway == 0)
