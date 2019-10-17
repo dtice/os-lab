@@ -156,9 +156,11 @@ void ArriveBridgerOneWay(void *c)
 		Loop Procedure:
 			1. Obtain mutex lock (blocks until)
 			2. Check state to see if we can proceed
-			3. If we can, terminate loop after modifying state
-			4. Else, GOTO 1
-			5. Release mutex lock
+			3. If we can, but would starve one-way, wait until one-way clear then
+				 reverse oneway
+			4. If we can, terminate loop after modifying state
+			5. Else, GOTO 1
+			6. Release mutex lock
 	*/
 
 	while(can_proceed != 1)
@@ -178,17 +180,39 @@ void ArriveBridgerOneWay(void *c)
 			// Direction of oneway matches current cars direction
 			if(state.dir == carAd->dir)
 			{
-				// Check combo;
-				if(state.combo > 10)
+				// Check starvation detection variable
+				if(state.combo >= 2)
 				{
-					//printf("Detected starvation, preempting\n");
+					printf("[Car #%d] Detected starvation, preempting\n", tid);
+					pthread_mutex_unlock(&mainLock);
+					int check = -1;
+					while(check != 0)
+					{
+						pthread_mutex_lock(&onewayLock);
+						check = state.cars_on_oneway;
+						pthread_mutex_unlock(&onewayLock);
+					}
+					pthread_mutex_lock(&mainLock);
+					if(carAd->dir == TO_BOZEMAN)
+					{
+						state.dir = TO_BRIDGER;
+					}
+					else
+					{
+						state.dir = TO_BOZEMAN;
+					}
+					state.combo = 0;
+					pthread_mutex_unlock(&mainLock);
+					continue;
 
 				}
 				else
 				{
 					printf("\n[Car #%d] Can proceed\n", tid);
 					can_proceed = 1;
+					pthread_mutex_lock(&onewayLock);
 					state.cars_on_oneway++;
+					pthread_mutex_unlock(&onewayLock);
 					if(state.last_car == carAd->dir){
 						state.combo++;
 					}
@@ -221,7 +245,9 @@ void ArriveBridgerOneWay(void *c)
 				state.last_car = carAd->dir;
 				printf("\n[Car #%d] Can proceed\n", tid);
 				can_proceed = 1;
+				pthread_mutex_lock(&onewayLock);
 				state.cars_on_oneway++;
+				pthread_mutex_unlock(&onewayLock);
 				switch((int)carAd->dir)
 				{
 					case 0:
@@ -294,7 +320,9 @@ void ExitBridgerOneWay(void *c)
 		printf("[ERROR] Could not obtain mutex lock\n");
 		return;
 	}
+	pthread_mutex_lock(&onewayLock);
 	state.cars_on_oneway--;
+	pthread_mutex_unlock(&onewayLock);
 	state.cars_passed++;
 	if(VERB > 0){
 		printf("\n[INFO] Cars on One-way: %d\n", state.cars_on_oneway);
@@ -332,6 +360,7 @@ void *OneVehicle(void *c)
 int main(int argc, char **argv)
 {
 	int err = pthread_mutex_init(&mainLock, NULL);
+	err = pthread_mutex_init(&onewayLock, NULL);
 	if(err != 0)
 	{
 		printf("\n [ERROR] Mutex Lock Failed: %d\n", err);
