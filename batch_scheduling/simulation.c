@@ -20,31 +20,38 @@ struct Entry
 	float TT_i;
 };
 
-int randNums() 
+double * randNums(int n) 
 {
 	const gsl_rng_type * T;
 	gsl_rng * r;
 
-	int i, n = 10;
 	double sigma = 0.25;
 
 	gsl_rng_env_setup();
 	T = gsl_rng_default;
 	r = gsl_rng_alloc (T);
 
-	for (i = 0; i < n; i++)
+	static double *randNums;
+	randNums = (double*)malloc(n*sizeof(double));
+
+	for (int i = 0; i < n; i++)
 	{
 		double x = gsl_ran_gaussian(r, sigma);
-		printf(" %f", x);
+		randNums[i] = x;
 	}
 
-	printf("\n");
 	gsl_rng_free(r);
-	return 0;
+	return randNums;
 }
 
-int main(void)
+int main(int argc, char *argv[])
 {
-	randNums();
+	double *randNumArray;
+	int numRands = 10;
+	randNumArray = randNums(numRands);
+	for (int i = 0; i < numRands - 1; i++)
+	{
+		printf("Random number #%d: %f\n", i, randNumArray[i]);
+	}
 	return 0;
 }
