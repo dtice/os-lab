@@ -4,10 +4,84 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <math.h>
+#include <limits.h>
 
 enum direction{TO_BRIDGER, TO_BOZEMAN};
 const char *directions[] = {"To Bridger", "To Bozeman"};
 
+/*
+	Queue code credit: GeeksForGeeks (https://www.geeksforgeeks.org/queue-set-1introduction-and-array-implementation/)
+*/
+
+// A structure to represent a queue
+struct Queue
+{
+    int front, rear, size;
+    unsigned capacity;
+    int* array;
+};
+
+// function to create a queue of given capacity.
+// It initializes size of queue as 0
+struct Queue* createQueue(unsigned capacity)
+{
+    struct Queue* queue = (struct Queue*) malloc(sizeof(struct Queue));
+    queue->capacity = capacity;
+    queue->front = queue->size = 0;
+    queue->rear = capacity - 1;  // This is important, see the enqueue
+    queue->array = (int*) malloc(queue->capacity * sizeof(int));
+    return queue;
+}
+
+// Queue is full when size becomes equal to the capacity
+int isFull(struct Queue* queue)
+{  return (queue->size == queue->capacity);  }
+
+// Queue is empty when size is 0
+int isEmpty(struct Queue* queue)
+{  return (queue->size == 0); }
+
+// Function to add an item to the queue.
+// It changes rear and size
+void enqueue(struct Queue* queue, int item)
+{
+    if (isFull(queue))
+        return;
+    queue->rear = (queue->rear + 1)%queue->capacity;
+    queue->array[queue->rear] = item;
+    queue->size = queue->size + 1;
+    printf("%d enqueued to queue\n", item);
+}
+
+// Function to remove an item from queue.
+// It changes front and size
+int dequeue(struct Queue* queue)
+{
+    if (isEmpty(queue))
+        return INT_MIN;
+    int item = queue->array[queue->front];
+    queue->front = (queue->front + 1)%queue->capacity;
+    queue->size = queue->size - 1;
+    return item;
+}
+
+// Function to get front of queue
+int front(struct Queue* queue)
+{
+    if (isEmpty(queue))
+        return INT_MIN;
+    return queue->array[queue->front];
+}
+
+// Function to get rear of queue
+int rear(struct Queue* queue)
+{
+    if (isEmpty(queue))
+        return INT_MIN;
+    return queue->array[queue->rear];
+}
+
+// END Queue code
 typedef struct
 {
 	enum direction dir;
@@ -30,6 +104,10 @@ typedef struct
 	int to_bridger;
 	int to_bozeman;
 	int cars_passed;
+
+	struct Queue* to_bridger_queue;
+	struct Queue* to_bozeman_queue;
+
 } sim_state;
 
 void print_state(sim_state *state)
@@ -58,6 +136,11 @@ pthread_mutex_t onewayLock;
 /* The state variable acts as our critical section, lock prevents 2 threads
 from occupying it */
 sim_state state;
+
+struct Queue* to_bozeman_queue;
+struct Queue* to_bridger_queue;
+
+
 
 
 int *parse_unnamed_args(int argc, char **argv)
@@ -133,15 +216,24 @@ void ArriveBridgerOneWay(void *c)
 
 	printf("[Car #%d] Arrived at One-Way\n", tid);
 
+
+	pthread_mutex_lock(&mainLock);
+	int front_of_queue;
+
 	switch((int)carAd->dir)
 	{
 		case 0:
 			state.to_bridger++;
+			enqueue(state.to_bridger_queue, tid);
+			front_of_queue = front(state.to_bridger_queue);
 			break;
 		case 1:
 			state.to_bozeman++;
+			enqueue(state.to_bozeman_queue, tid);
+			front_of_queue = front(state.to_bozeman_queue);
 			break;
 	}
+	pthread_mutex_unlock(&mainLock);
 
 	if(VERB > 0)
 	{
@@ -204,7 +296,7 @@ void ArriveBridgerOneWay(void *c)
 
 			}
 			// Direction of oneway matches current cars direction
-			if(state.dir == carAd->dir)
+			if(state.dir == carAd->dir && tid == front_of_queue)
 			{
 				printf("\n[Car #%d] Can proceed\n", tid);
 				can_proceed = 1;
@@ -221,15 +313,17 @@ void ArriveBridgerOneWay(void *c)
 				{
 					case 0:
 					state.to_bridger--;
+					dequeue(state.to_bridger_queue);
 					break;
 					case 1:
 					state.to_bozeman--;
+					dequeue(state.to_bozeman_queue);
 					break;
 				}
 				print_state(&state);
 			}
 			// Flip direction if no cars on roadway but state.dir != carAd->dir
-			else if(state.cars_on_oneway == 0)
+			else if(state.cars_on_oneway == 0 && front_of_queue == tid)
 			{
 				if(VERB > 0)
 				{
@@ -385,6 +479,12 @@ int main(int argc, char **argv)
 	RAND_SEED = parsed_args[3];
 
 	THREAD_WAIT = parsed_args[4];
+
+	to_bozeman_queue = createQueue(NUMCARS);
+	to_bridger_queue = createQueue(NUMCARS);
+
+	state.to_bozeman_queue = to_bozeman_queue;
+	state.to_bridger_queue = to_bridger_queue;
 
 	printf("Num Cars: %d\nMax Cars: %d\n\n", NUMCARS, MAXCARS);
 
