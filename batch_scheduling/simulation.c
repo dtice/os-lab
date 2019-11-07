@@ -163,15 +163,15 @@ int main(int argc, char *argv[])
 
 	// Begin simulation --
 	int allProcsFinished = 0;
-	do {
+	while(allProcsFinished != 1) {
 		printf("\n\nTime: %d\n", t);
+		printTable(Table, n);
 
 		int activeProcesses = 0;
 		do {
 			activeProcesses = checkActiveProcesses(Table, n);
 		} while(activeProcesses < 0);
 
-		printTable(Table, n);
 
 		// TODO: Schedule active processes
 
@@ -181,7 +181,7 @@ int main(int argc, char *argv[])
 			allProcsFinished = 1;
 		}
 		t++;
-	} while(allProcsFinished != 1);
+	}
 	// --
 
 	// Free rng
